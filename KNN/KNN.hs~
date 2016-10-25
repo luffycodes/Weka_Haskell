@@ -1,0 +1,146 @@
+{-
+Input:
+(i)training data(r-dimensional,class) 
+(ii)distance measure(Euclidean, geodesic, minkowski,cosine, mahalanobis) 
+(iii)k
+(iv)test data
+
+Output:
+Cluster numbers for each test data 
+
+Modes:
+(i)distance type
+(ii)distanceWeight : equal, inverse(1/d),inverseSquare(1/d^2)
+(iii)tie-breaking
+
+Modules:
+knn(trainData,testData,distType)
+kNearestNeighbours(trainData,testPoint,distType)
+majorityVote([k points])
+resolveTie(k points[],[tie classes])
+calcDistance(testPoint,trainPoint,distType)
+main() or knn(<inputs>)
+
+PseudoCode:
+(i)Find k nearest neighbours(train points) of a test point
+(ii)Majority Voting from this k neighbours to find class
+(iii)Resolve clash if any(default measure,settable) - resolved class allotted to test point
+(iv)Repeat (i)-(iii) for all test points 
+-}
+
+module KNN (
+        KNN(..),
+        knn,
+        kNearestNeighbours,
+        fitKNN,
+        predictKNN,
+        predictKNNMulti
+)
+where
+
+import Structures
+import Data.List
+import Control.Applicative
+-- modified aditya
+data KNN = KNN {
+                classify :: TestDataCollect -> DataCollect     
+           }
+fitKNN :: Int -> DType -> Resolve -> DataCollect -> KNN
+fitKNN k dt res dataset = KNN (knn k dt res dataset)
+
+predictKNN :: KNN -> FeatureVector -> DataPoint
+predictKNN kn fv = let 
+                   [x] = predictKNNMulti kn [fv]
+                in 
+                    x
+
+predictKNNMulti :: KNN -> TestDataCollect -> DataCollect
+predictKNNMulti kn tstdata =  (classify kn) tstdata
+-- end : modified aditya
+
+
+
+
+
+
+
+-- | overall knn  algorithm
+--takes training data,test data, k for knn and distance measure for knn
+knn :: Int -> DType -> Resolve -> DataCollect -> TestDataCollect -> DataCollect
+knn k dt res _ [] = [] --error "Empty test set"
+knn k dt res []	_ = error "Train data absent"
+knn k dt res train (x:xs) | (length train) < k = error "Train data insufficient"
+					  | otherwise		   = (x,cl) : (knn k dt res train xs) --(DataPoint x cl) : (knn k dt train xs) 
+								where 
+									cl = majorityVote res kSet 
+										where										--need to do majority voting to get class
+											kSet = kNearestNeighbours k dt train x	--has the k-nearest train neighbours of test point x
+
+
+-- | finding k nearest neighbours to a test point
+--takes training data,test point, k for knn and distance measure for knn and gives k nearest train points
+kNearestNeighbours :: Int -> DType -> DataCollect -> FeatureVector -> DataCollect
+kNearestNeighbours k dt trPtset tePt = 	map fst lwdst where 
+							lwdst = take k (sortBy distComp lss) where
+									distComp a b | (<) (snd a) (snd b)= LT
+												 | otherwise = GT
+									lss = ptWithDist dt trPtset tePt
+
+
+-- | finding distance of set of points from one point
+ptWithDist::DType -> DataCollect -> FeatureVector -> [(DataPoint,Double)]
+ptWithDist dt [] tePt = []
+ptWithDist dt (x:xs) tePt =  (x,(calcDistance dt (fst x) tePt)) : (ptWithDist dt xs tePt)
+
+
+-- | finding distance between two data points. Current distance types : Euclidean("eucl"), Manhattan("manh")
+-- distance would be between train point(without classNames) and test point 
+calcDistance:: DType -> FeatureVector -> FeatureVector -> Double
+calcDistance _ [] [] = 0.0
+--calcDistance _ [] _ = error "size mismatch"
+--calcDistance _ _ [] = error "size mismatch"		
+calcDistance Euclidean (x:xs) (y:ys) = sqrt ((x-y)^2 + (calcDistance Euclidean xs ys))	--Euclidean 
+calcDistance Manhattan (x:xs) (y:ys) = (abs (x-y)) + (calcDistance Manhattan xs ys)		--Manhattan or l1 
+calcDistance DefaultDT lst1 lst2 = calcDistance Euclidean lst1 lst2						--Euclidean - default
+
+-- | majority voting from list of k train points 
+majorityVote::Resolve -> DataCollect -> ClassName		
+majorityVote res kSet = resolveTie res (findMajority ltt)  	--ltt is [[],[]...] form of classes where classes are combined 
+				where
+					--ltt = group (sort kSet)				
+					ltt = groupBy (\x y -> (snd x)==(snd y)) (sortBy byClass kSet) 
+						where
+							byClass a b | (<) (snd a) (snd b) 	= LT	--LT and GT inverted would work too
+										| otherwise 			= GT
+
+-- | gives the list of maximas	
+findMajority::[DataCollect] -> [(ClassName,Int)]
+findMajority (x:[]) = ((snd (head x)),length x) :[]
+findMajority (x:xs)	= if ((length x) > junc) then (snd (head x), (length x)):[]
+					  else if ((length x) < junc) then junior
+							else ( (snd (head x),length x):junior) where 
+								junior = findMajority xs
+								junc   = snd (head junior)	--represents no. of occurences of class in k selected neighbours
+
+
+							 
+-- | resolving tie if any
+--assign by default some trivial 
+resolveTie::Resolve -> [(ClassName,Int)] -> ClassName
+resolveTie Last (x:xs) = fst x		--
+resolveTie First (x:[]) = fst x
+resolveTie First (x:xs) = resolveTie First (xs)
+resolveTie DefaultR lst = resolveTie First lst
+
+
+input2::DataCollect
+input2 = [
+                ([5.9,180,12],"boys"),
+                ([6,190,11],"boys"),
+                ([6,170,12],"boys"),
+                ([6.1,100,10],"boys"),
+                ([3.9,165,10],"girls"),
+                ([4,150,8],"girls"),
+                ([4,130,7],"girls"),
+                ([4.1,150,9],"girls")
+                                        ]

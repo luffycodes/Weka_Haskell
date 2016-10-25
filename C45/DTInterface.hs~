@@ -1,0 +1,106 @@
+module DTInterface (
+                     crossValidate
+                   , traintest
+                   , makeObjectFromFile
+                   ) where
+
+import C45
+import Structures
+import GeneralAux
+import Control.Applicative
+import Definitions
+
+makeObjectFromFile :: Int -> [Attribute] -> FPath -> IO C45Dtree
+makeObjectFromFile maxDepth attbs fp = do
+                                           rawdata <- readFile fp
+                                           let
+                                               dataset = convertToDataSet attbs rawdata
+                                           return $ C45Dtree (\d -> classify (build maxDepth dataset) d)
+
+convertToDataSet :: [Attribute] -> String -> DataSetDT
+convertToDataSet attbs str = map (convertToDataSet' attbs) str'
+    where str' = split '\n' str
+
+convertToDataSet' :: [Attribute] -> String -> Labelled
+convertToDataSet' attbs str = Labelled lbl pt
+    where list = split ',' str
+          lbl = last list
+          pt = Datum $ zip attbs $ map (read::String->Double) $ take (length list - 1) list
+
+convertToFeatureVectorSet :: [Attribute] -> String -> [FeatureDT]
+convertToFeatureVectorSet attbs str = let
+                              fstSplit = split '\n' str
+                              sndSplit = map (split ',') fstSplit
+                          in
+                              map (\feature -> Datum $ zip attbs $ map (read::String->Double) feature) sndSplit
+
+traintest :: Int -> [Attribute] -> TrainPath -> TestPath -> IO DataSetDT
+traintest maxDepth attbs trainpath testpath = do
+                                            rawtraindata <- readFile trainpath
+                                            rawtestdata <- readFile testpath
+                                            let
+                                                traindataset = convertToDataSet attbs rawtraindata
+                                                testdataset = convertToFeatureVectorSet attbs rawtestdata
+                                            return (c45Dtree maxDepth traindataset testdataset)
+
+crossValidate :: Double -> Int -> [Attribute] -> FPath -> IO Performance
+crossValidate ratio maxDepth attbs fp = do
+                                      rawdata <- readFile fp
+                                      let
+                                          dataset = convertToDataSet attbs rawdata
+                                      return $ crossValidateData ratio maxDepth dataset
+
+crossValidateData :: Double -> Int -> DataSetDT -> Performance
+crossValidateData ratio maxDepth dataset = let
+                                               instances = splitDataSet ratio dataset
+                                               results = (checkPerformance maxDepth) <$> instances
+                                               (correct,total) = foldr f (0,0) results
+                                                   where
+                                                       f (_,(a,b)) (at,bt) = (a+at,b+bt)
+                                           in
+                                               (correct,total)
+
+checkPerformance :: Int -> (DataSetDT,DataSetDT) -> (DataSetDT,Performance)
+checkPerformance maxDepth (train,test) = let
+                                             labels = label <$> test
+                                             predictedLabels = label <$> c45Dtree maxDepth train (point <$> test)
+                                             ZipList eq = (==) <$> (ZipList labels) <*> (ZipList predictedLabels)
+                                             count = length $ filter (\x -> x==True) eq
+                                         in
+                                             (test, (count, length test))
+
+splitDataSet :: Double -> DataSetDT -> [(DataSetDT,DataSetDT)]
+splitDataSet ratio dataset = let
+                                 size = decidesize ratio $ length dataset
+                                 count = gif (length dataset) size
+                                 base = [0 .. (count-1)]
+                                 start = (* size) <$> base
+                                 end = (+(size-1)) <$> start
+                                 slices = zip start end
+                             in
+                                 (slice dataset) <$> slices
+
+decidesize r total = floor (r * fromIntegral total)
+
+gif val div = ceiling ((fromIntegral val) / (fromIntegral div))
+
+slice :: DataSetDT -> (Int,Int) -> (DataSetDT,DataSetDT)
+slice dataset (start,end) | start >= length dataset = error "sizes don't match"
+                          | otherwise               = (dstrain,dstest)
+    where
+        dstrain1 = take start dataset
+        dstrain2 = drop (end+1) dataset
+        dstrain = dstrain1 ++ dstrain2
+        dstest = take (end-start+1) $ drop start dataset
+        
+dataset1 = zipWith Labelled labels unlabeled
+labels = ["1","2","3","4","5","6"]
+unlabeled = 
+    [Datum { attributes = [(outlook,1.0)]},
+    Datum { attributes = [(outlook,2.0)]},
+    Datum { attributes = [(outlook,3)]},
+    Datum { attributes = [(outlook,4)]},
+    Datum { attributes = [(outlook,5)]},
+    Datum { attributes = [(outlook,6)]}]
+outlook = Nominal "out" [1,2,3,4,5,6]
+

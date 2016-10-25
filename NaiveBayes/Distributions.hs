@@ -1,0 +1,52 @@
+module NaiveBayes.Distributions
+where
+
+import Data.List
+import Control.Applicative
+import Structures.Structures
+
+type Value = Double
+
+{-Begin : fitGaussian-}
+{-
+theory : the Gaussian distribution is
+P(x = v/C) = 1/ sqrt(2.Pi.(\sigma)^2) * exp -(v - (\mu)^2)/2 (\sigma)^2
+-}
+fitGaussian :: [Value] -> Value -> Probability
+fitGaussian [] v = error "list is empty"
+fitGaussian vs v = let
+                        mu = mean vs
+                        sigsq = variancesq vs
+                        denominator = sqrt (2 * pi * sigsq)
+                        exponent = (-1) * (v - mu) * (v- mu) / (2 * sigsq)
+                   in
+                        (exp exponent)/ denominator
+
+
+-- helper functions
+{- this is the \mu in the above formula 
+-}
+mean :: [Value] -> Value
+mean [] = error "The list of values is empty"
+mean ls = (sum ls) / (fromIntegral (length ls))
+
+{- this is the \signma ^ 2 in the formula above
+-}
+variancesq :: [Value] -> Value
+variancesq ls = (foldl' f 0 ls) / (fromIntegral (length ls) - 1 )
+              where
+                m = mean ls
+                f b a = b + (a - m) * (a - m)
+                
+giveGaussianProbe :: FeatureData -> ClassData -> Probe
+-- Probe :: ClassName -> Feature -> Probability
+giveGaussianProbe fd cd cls = fitGaussian dataOfCls
+                              where dataOfCls = collectdata cls fd cd
+
+collectdata cls fd [] = []
+collectdata cls (f:fs) (c:cs) | c==cls = f:(collectdata cls fs cs)
+                              | otherwise = collectdata cls fs cs
+
+{-End : Gaussian-}
+
+
